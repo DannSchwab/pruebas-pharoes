@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Índice UV y protección solar</title>
+<!--
+  Plantilla del dashboard (paso 4 de la prueba). No contiene datos:
+  generar_dashboard.py sustituye el marcador del bloque "datos-dashboard"
+  (al final de la página) por los datos del CSV en JSON y guarda el
+  resultado como dashboard.html.
+-->
+<style>
+  :root {
+    --pagina: #f9f9f7;
+    --superficie: #fcfcfb;
+    --texto: #0b0b0b;
+    --texto-2: #52514e;
+    --texto-3: #67655f;
+    --rejilla: #e1e0d9;
+    --eje: #c3c2b7;
+    --borde: rgba(11, 11, 11, 0.10);
+    --resalte: rgba(11, 11, 11, 0.05);
+    --sombra: rgba(11, 11, 11, 0.12);
+    --serie: #2a78d6;
+    --serie-relleno: rgba(42, 120, 214, 0.10);
+    /* Niveles de riesgo del índice UV (colores de la escala de la OMS, ajustados al fondo) */
+    --nivel-bajo: #2e9a3e;
+    --nivel-moderado: #f0c000;
+    --nivel-alto: #e8730f;
+    --nivel-muy-alto: #b51f2e;
+    --nivel-extremo: #7650d0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --pagina: #0d0d0d;
+      --superficie: #1a1a19;
+      --texto: #f0efec;
+      --texto-2: #c3c2b7;
+      --texto-3: #9d9b93;
+      --rejilla: #2c2c2a;
+      --eje: #383835;
+      --borde: rgba(255, 255, 255, 0.10);
+      --resalte: rgba(255, 255, 255, 0.06);
+      --sombra: rgba(0, 0, 0, 0.5);
+      --serie: #3987e5;
+      --serie-relleno: rgba(57, 135, 229, 0.14);
+      --nivel-bajo: #3aa54a;
+      --nivel-moderado: #f2c94c;
+      --nivel-alto: #ee7d1a;
+      --nivel-muy-alto: #d93a45;
+      --nivel-extremo: #9580ec;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--pagina);
+    color: var(--texto);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .pagina { max-width: 960px; margin: 0 auto; padding: 40px 24px 32px; }
+
+  .cabecera { margin-bottom: 24px; }
+  .antetitulo { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--texto-3); }
+  h1 { margin: 0; font-size: 28px; line-height: 1.2; font-weight: 650; letter-spacing: -0.01em; }
+  .subtitulo { margin: 6px 0 0; color: var(--texto-2); }
+
+  .resumen {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    margin: 0 0 16px; padding: 0;
+  }
+  .dato, .tarjeta {
+    background: var(--superficie);
+    border: 1px solid var(--borde);
+    border-radius: 12px;
+  }
+  .dato { margin: 0; padding: 16px 18px; }
+  .dato dt { font-size: 13px; color: var(--texto-2); }
+  .dato dd { margin: 0; }
+  .dato-valor { margin: 2px 0 2px; font-size: 30px; line-height: 1.2; font-weight: 650; }
+  .dato-detalle { font-size: 13px; color: var(--texto-2); }
+
+  .tarjeta { padding: 20px 20px 16px; margin-bottom: 16px; }
+  .grafica { height: 320px; }
+  .tarjeta-titulo { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
+
+  .leyenda {
+    display: flex; flex-wrap: wrap; gap: 6px 16px;
+    margin: 4px 0 0; padding: 0; list-style: none;
+    font-size: 12.5px; color: var(--texto-2);
+  }
+  .leyenda li { display: inline-flex; align-items: center; gap: 6px; }
+  .muestra { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; }
+  .muestra-umbral { width: 18px; height: 0; border-radius: 0; border-top: 1.5px dashed var(--texto-2); }
+  .nota { margin: 10px 0 0; font-size: 13px; color: var(--texto-2); }
+
+  .tabla-contenedor { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--rejilla); }
+  thead th { font-size: 12.5px; font-weight: 600; color: var(--texto-2); vertical-align: bottom; }
+  tbody th { font-weight: 500; }
+  tbody tr:last-child > * { border-bottom: 0; }
+  .numero { text-align: right; font-variant-numeric: tabular-nums; }
+  .nivel { white-space: nowrap; }
+  .nivel .muestra { margin-right: 6px; }
+
+  .aviso {
+    margin: 0 0 16px; padding: 14px 16px; border-radius: 10px;
+    background: var(--superficie); border: 1px solid var(--borde); border-left: 4px solid var(--nivel-alto);
+  }
+  .aviso code { font-size: 13px; }
+
+  .pie { margin-top: 24px; font-size: 12.5px; color: var(--texto-3); }
+  .pie p { margin: 0 0 4px; }
+  .pie a { color: inherit; }
+
+  /* Tooltip de ECharts */
+  .tt { min-width: 180px; font-size: 13px; line-height: 1.45; }
+  .tt-fecha { margin-bottom: 4px; color: var(--texto-2); }
+  .tt-fila { display: flex; align-items: center; gap: 8px; }
+  .tt-valor { font-size: 15px; font-weight: 650; color: var(--texto); }
+  .tt-etiqueta { color: var(--texto-2); }
+  .tt-linea { display: inline-block; width: 12px; height: 2px; border-radius: 1px; }
+
+  .oculto {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  .corto { display: none; }
+
+  @media (max-width: 560px) {
+    .largo { display: none; }
+    .corto { display: inline; }
+    .pagina { padding: 24px 16px 24px; }
+    h1 { font-size: 24px; }
+    .resumen { grid-template-columns: 1fr; gap: 8px; }
+    .dato { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: center; padding: 12px 16px; }
+    .dato dt { grid-column: 1; }
+    .dato-detalle { grid-column: 1; }
+    .dato-valor { grid-column: 2; grid-row: 1 / span 2; margin: 0; font-size: 26px; }
+    .tarjeta { padding: 16px 12px 12px; }
+    .grafica { height: 280px; }
+    th, td { padding: 8px 6px; }
+    tbody th { white-space: nowrap; }
+  }
+</style>
+</head>
+<body>
+<main class="pagina">
+  <header class="cabecera">
+    <p class="antetitulo" id="antetitulo">Previsión</p>
+    <h1>Índice UV y protección solar</h1>
+    <p class="subtitulo" id="subtitulo"></p>
+  </header>
+
+  <noscript><p class="aviso">Este dashboard necesita JavaScript para mostrar los datos.</p></noscript>
+  <p class="aviso" id="aviso-plantilla" hidden>
+    Esta es la plantilla del dashboard y todavía no tiene datos. Genera el dashboard con
+    <code>python generar_dashboard.py</code> y abre <code>dashboard.html</code>.
+  </p>
+
+  <div id="contenido">
+    <dl class="resumen" aria-label="Resumen del periodo">
+      <div class="dato">
+        <dt>Índice UV más alto</dt>
+        <dd class="dato-valor" id="uv-maximo">–</dd>
+        <dd class="dato-detalle" id="uv-maximo-detalle"></dd>
+      </div>
+      <div class="dato">
+        <dt>Días con uso de protección</dt>
+        <dd class="dato-valor" id="dias-uso">–</dd>
+        <dd class="dato-detalle" id="dias-uso-detalle"></dd>
+      </div>
+      <div class="dato">
+        <dt>Uso total estimado</dt>
+        <dd class="dato-valor" id="uso-total">–</dd>
+        <dd class="dato-detalle" id="uso-total-detalle"></dd>
+      </div>
+    </dl>
+
+    <p class="aviso" id="aviso-graficas" hidden>
+      No se han podido cargar las gráficas: la librería ECharts se descarga de internet.
+      Comprueba la conexión y recarga la página. El resumen y la tabla de datos sí están disponibles.
+    </p>
+
+    <section class="tarjeta tarjeta-grafica" aria-labelledby="titulo-uv">
+      <h2 class="oculto" id="titulo-uv">Índice UV máximo diario</h2>
+      <div class="grafica" id="grafica-uv" role="img"></div>
+      <ul class="leyenda" id="leyenda-niveles" aria-label="Niveles de riesgo del índice UV según la OMS"></ul>
+    </section>
+
+    <section class="tarjeta tarjeta-grafica" aria-labelledby="titulo-uso">
+      <h2 class="oculto" id="titulo-uso">Uso estimado de protección solar</h2>
+      <div class="grafica" id="grafica-uso" role="img"></div>
+      <p class="nota" id="nota-formula"></p>
+    </section>
+
+    <section class="tarjeta" aria-labelledby="titulo-tabla">
+      <h2 class="tarjeta-titulo" id="titulo-tabla">Datos por día</h2>
+      <div class="tabla-contenedor">
+        <table>
+          <caption class="oculto">Índice UV máximo, nivel de riesgo y uso estimado de protección solar de cada día</caption>
+          <thead>
+            <tr>
+              <th scope="col">Día</th>
+              <th scope="col" class="numero"><span class="largo">Índice UV máximo</span><span class="corto">UV máx.</span></th>
+              <th scope="col">Nivel</th>
+              <th scope="col" class="numero"><span class="largo">Uso estimado de protección solar</span><span class="corto">Uso estimado</span></th>
+            </tr>
+          </thead>
+          <tbody id="tabla-datos"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <footer class="pie">
+    <p>Previsión meteorológica: <a href="https://open-meteo.com/">Open-Meteo.com</a> (CC BY 4.0). Niveles de riesgo del índice UV según la OMS.</p>
+    <p id="generado"></p>
+  </footer>
+</main>
+
+<!-- Datos del dashboard: los escribe generar_dashboard.py a partir del CSV. -->
+<script id="datos-dashboard" type="application/json">__DATOS_DASHBOARD__</script>
+
+<!-- ECharts 6.1.0. El hash (SRI) hace que el navegador rechace el fichero si alguien lo modifica. -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js"
+        integrity="sha384-C2iskrW/uPW46KzOjrvJIQo4YkV8lkD+QS0CrDN18IIPIpT/g2USu8bTP3nvmIAD"
+        crossorigin="anonymous"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  // Niveles de riesgo del índice UV de la OMS (los mismos que usa AEMET).
+  // Desde el nivel moderado (UV 3) se recomienda protegerse del sol.
+  const NIVELES = [
+    { hasta: 3, nombre: 'Bajo', rango: '0–2', color: '--nivel-bajo' },
+    { hasta: 6, nombre: 'Moderado', rango: '3–5', color: '--nivel-moderado' },
+    { hasta: 8, nombre: 'Alto', rango: '6–7', color: '--nivel-alto' },
+    { hasta: 11, nombre: 'Muy alto', rango: '8–10', color: '--nivel-muy-alto' },
+    { hasta: Infinity, nombre: 'Extremo', rango: '11 o más', color: '--nivel-extremo' }
+  ];
+  const nivelUV = (uv) => NIVELES.find((nivel) => uv < nivel.hasta);
+
+  const DIAS_SEMANA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const DIAS_CORTOS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+  const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+                 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic'];
+  const FUENTE = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
+  const formato = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 });
+  const numero = (valor) => formato.format(valor);
+  const porId = (id) => document.getElementById(id);
+  const mayuscula = (texto) => texto.charAt(0).toUpperCase() + texto.slice(1);
+
+  // Las fechas llegan como "aaaa-mm-dd" y se tratan en UTC para que la zona horaria
+  // del navegador no cambie el día.
+  const aFecha = (iso) => {
+    const [anio, mes, dia] = iso.split('-').map(Number);
+    return new Date(Date.UTC(anio, mes - 1, dia));
+  };
+  const etiquetaEje = (f) => `${DIAS_CORTOS[f.getUTCDay()]}\n${f.getUTCDate()} ${MESES_CORTOS[f.getUTCMonth()]}`;
+  const fechaCorta = (f) => `${DIAS_CORTOS[f.getUTCDay()]} ${f.getUTCDate()} ${MESES_CORTOS[f.getUTCMonth()]}`;
+  const fechaLarga = (f) => `${DIAS_SEMANA[f.getUTCDay()]}, ${f.getUTCDate()} de ${MESES[f.getUTCMonth()]}`;
+  const pantallaEstrecha = window.matchMedia('(max-width: 560px)'); // el mismo corte que en el CSS
+
+  function rangoDeFechas(fechas) {
+    const [a, b] = [fechas[0], fechas[fechas.length - 1]];
+    const diaMes = (f) => `${f.getUTCDate()} de ${MESES[f.getUTCMonth()]}`;
+    if (fechas.length === 1) return `${diaMes(a)} de ${a.getUTCFullYear()}`;
+    if (a.getUTCFullYear() !== b.getUTCFullYear()) {
+      return `del ${diaMes(a)} de ${a.getUTCFullYear()} al ${diaMes(b)} de ${b.getUTCFullYear()}`;
+    }
+    if (a.getUTCMonth() !== b.getUTCMonth()) return `del ${diaMes(a)} al ${diaMes(b)} de ${b.getUTCFullYear()}`;
+    return `del ${a.getUTCDate()} al ${diaMes(b)} de ${b.getUTCFullYear()}`;
+  }
+
+  function leerDatos() {
+    try {
+      const datos = JSON.parse(porId('datos-dashboard').textContent);
+      const n = datos.dias.length;
+      if (!n || datos.uv.length !== n || datos.uso.length !== n) return null;
+      return datos;
+    } catch (error) {
+      return null; // la plantilla sin generar: el bloque de datos no es JSON
+    }
+  }
+
+  const datos = leerDatos();
+  if (!datos) {
+    porId('aviso-plantilla').hidden = false;
+    porId('contenido').hidden = true;
+    return;
+  }
+
+  const fechas = datos.dias.map(aFecha);
+  const totalDias = datos.dias.length;
+
+  // ---------------------------------------------------------------- Textos
+  function pintarTextos() {
+    const rango = rangoDeFechas(fechas);
+    porId('antetitulo').textContent = `Previsión de ${totalDias} ${totalDias === 1 ? 'día' : 'días'}`;
+    porId('subtitulo').textContent = datos.ubicacion ? `${datos.ubicacion} · ${rango}` : mayuscula(rango);
+    document.title = datos.ubicacion
+      ? `Índice UV y protección solar · ${datos.ubicacion}`
+      : 'Índice UV y protección solar';
+    porId('nota-formula').textContent =
+      `Uso estimado = (índice UV − ${datos.umbral}) × ${datos.factor} si el índice UV es ${datos.umbral} o más; ` +
+      `0 si es menor. Es un valor relativo, sin unidades.`;
+    porId('generado').textContent = `Generado el ${datos.generado} a partir de ${datos.csv}.`;
+  }
+
+  // --------------------------------------------------------------- Resumen
+  function muestraDeNivel(nivel) {
+    const muestra = document.createElement('span');
+    muestra.className = 'muestra';
+    muestra.style.background = `var(${nivel.color})`;
+    muestra.setAttribute('aria-hidden', 'true');
+    return muestra;
+  }
+
+  function pintarResumen() {
+    let iMaximo = 0;
+    datos.uv.forEach((uv, i) => { if (uv > datos.uv[iMaximo]) iMaximo = i; });
+    const nivel = nivelUV(datos.uv[iMaximo]);
+    porId('uv-maximo').textContent = numero(datos.uv[iMaximo]);
+    const detalle = porId('uv-maximo-detalle');
+    detalle.append(muestraDeNivel(nivel), ` ${nivel.nombre} · ${fechaLarga(fechas[iMaximo])}`);
+
+    const diasConUso = datos.uso.filter((uso) => uso > 0).length;
+    porId('dias-uso').textContent = `${diasConUso} de ${totalDias}`;
+    porId('dias-uso-detalle').textContent = `con índice UV por encima de ${datos.umbral}`;
+
+    const total = datos.uso.reduce((suma, uso) => suma + uso, 0);
+    porId('uso-total').textContent = numero(Math.round(total * 100) / 100);
+    porId('uso-total-detalle').textContent = `suma de los ${totalDias} días`;
+  }
+
+  // ----------------------------------------------------------------- Tabla
+  function pintarTabla() {
+    const cuerpo = porId('tabla-datos');
+    datos.dias.forEach((_, i) => {
+      const fila = cuerpo.insertRow();
+      const dia = document.createElement('th');
+      dia.scope = 'row';
+      const largo = document.createElement('span');
+      largo.className = 'largo';
+      largo.textContent = mayuscula(fechaLarga(fechas[i]));
+      const corto = document.createElement('span');
+      corto.className = 'corto';
+      corto.textContent = mayuscula(fechaCorta(fechas[i]));
+      dia.append(largo, corto);
+      fila.append(dia);
+
+      const uv = fila.insertCell();
+      uv.className = 'numero';
+      uv.textContent = numero(datos.uv[i]);
+
+      const nivel = nivelUV(datos.uv[i]);
+      const celdaNivel = fila.insertCell();
+      celdaNivel.className = 'nivel';
+      celdaNivel.append(muestraDeNivel(nivel), nivel.nombre);
+
+      const uso = fila.insertCell();
+      uso.className = 'numero';
+      uso.textContent = numero(datos.uso[i]);
+    });
+  }
+
+  function pintarLeyenda() {
+    const leyenda = porId('leyenda-niveles');
+    NIVELES.forEach((nivel) => {
+      const item = document.createElement('li');
+      item.append(muestraDeNivel(nivel), `${nivel.nombre} (${nivel.rango})`);
+      leyenda.append(item);
+    });
+    const umbral = document.createElement('li');
+    const linea = document.createElement('span');
+    linea.className = 'muestra muestra-umbral';
+    linea.setAttribute('aria-hidden', 'true');
+    umbral.append(linea, `Umbral de la fórmula (UV ${datos.umbral})`);
+    leyenda.append(umbral);
+  }
+
+  // -------------------------------------------------------------- Gráficas
+  let graficas = [];
+  let modoEstrecho = null;
+  const movimientoReducido = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Escala "redonda" para el uso: el uso no tiene un máximo natural.
+  function escalaUso(maximoDatos) {
+    const tope = Math.max(maximoDatos, 10);
+    const paso = [1, 2, 2.5, 5, 10, 20, 25, 50, 100].find((p) => tope / p <= 5) || Math.ceil(tope / 5);
+    return { max: Math.ceil(tope / paso) * paso, paso };
+  }
+
+  function colores() {
+    const estilo = getComputedStyle(document.documentElement);
+    const css = (nombre) => estilo.getPropertyValue(nombre).trim();
+    return {
+      superficie: css('--superficie'), texto: css('--texto'), texto2: css('--texto-2'), texto3: css('--texto-3'),
+      rejilla: css('--rejilla'), eje: css('--eje'), borde: css('--borde'), resalte: css('--resalte'),
+      sombra: css('--sombra'), serie: css('--serie'), serieRelleno: css('--serie-relleno'),
+      nivel: (uv) => css(nivelUV(uv).color)
+    };
+  }
+
+  // Lo que comparten las dos gráficas. Los mismos márgenes y los mismos días hacen
+  // que cada día quede alineado verticalmente en las dos.
+  function opcionesComunes(c, estrecho, titulo, nombreEjeY) {
+    return {
+      animation: !movimientoReducido,
+      textStyle: { fontFamily: FUENTE },
+      title: { text: titulo, left: 0, top: 0, textStyle: { color: c.texto, fontSize: estrecho ? 15 : 16, fontWeight: 600 } },
+      grid: { left: estrecho ? 38 : 44, right: estrecho ? 8 : 16, top: 74, bottom: 62, outerBoundsMode: 'none' },
+      tooltip: {
+        trigger: 'axis', confine: true, padding: [8, 12], borderWidth: 1,
+        backgroundColor: c.superficie, borderColor: c.borde, textStyle: { color: c.texto },
+        extraCssText: `border-radius: 8px; box-shadow: 0 6px 20px ${c.sombra};`
+      },
+      xAxis: {
+        type: 'category', data: fechas.map(etiquetaEje),
+        name: 'Día', nameLocation: 'middle', nameGap: 44,
+        nameTextStyle: { color: c.texto2, fontSize: 12 },
+        axisLine: { lineStyle: { color: c.eje } }, axisTick: { show: false },
+        axisLabel: { color: c.texto3, fontSize: estrecho ? 11 : 12, lineHeight: 15, interval: totalDias > 10 ? 'auto' : 0 }
+      },
+      yAxis: {
+        type: 'value', min: 0, name: nombreEjeY, nameGap: 16,
+        nameTextStyle: { color: c.texto2, fontSize: 12, align: 'left' },
+        axisLabel: { color: c.texto3, fontSize: estrecho ? 11 : 12 },
+        splitLine: { lineStyle: { color: c.rejilla, width: 1 } }
+      }
+    };
+  }
+
+  // Valor encima de cada barra o punto. El borde del color del fondo evita que
+  // una línea (como la del umbral) atraviese el número.
+  function etiquetaValor(c, estrecho, distancia) {
+    return {
+      show: true, position: 'top', distance: distancia, formatter: (p) => numero(p.value),
+      color: c.texto2, fontSize: estrecho ? 11 : 12, fontWeight: 600,
+      textBorderColor: c.superficie, textBorderWidth: 3
+    };
+  }
+
+  function lineaTooltip(i, color, forma, valor, etiqueta) {
+    const marca = forma === 'barra'
+      ? `<span class="muestra" style="background:${color}"></span>`
+      : `<span class="tt-linea" style="background:${color}"></span>`;
+    return `<div class="tt"><div class="tt-fecha">${mayuscula(fechaLarga(fechas[i]))}</div>` +
+      `<div class="tt-fila">${marca}<span class="tt-valor">${valor}</span><span class="tt-etiqueta">${etiqueta}</span></div></div>`;
+  }
+
+  function opcionUV(c, estrecho) {
+    const base = opcionesComunes(c, estrecho, 'Índice UV máximo diario', 'Índice UV');
+    // Escala fija de 0 a 12 (se amplía si algún día la supera) para ver cada día
+    // frente a los niveles de la OMS y poder comparar semanas distintas.
+    base.yAxis.max = Math.max(12, Math.ceil(Math.max(...datos.uv) / 3) * 3);
+    base.yAxis.interval = 3;
+    base.tooltip.axisPointer = { type: 'shadow', shadowStyle: { color: c.resalte } };
+    base.tooltip.formatter = (puntos) => {
+      const i = puntos[0].dataIndex;
+      const uv = datos.uv[i];
+      return lineaTooltip(i, c.nivel(uv), 'barra', numero(uv), `Índice UV · ${nivelUV(uv).nombre.toLowerCase()}`);
+    };
+    base.series = [{
+      type: 'bar',
+      name: 'Índice UV máximo',
+      data: datos.uv.map((uv) => ({ value: uv, itemStyle: { color: c.nivel(uv) } })),
+      barMaxWidth: 24,
+      itemStyle: { borderRadius: [4, 4, 0, 0] },
+      emphasis: { itemStyle: { opacity: 0.8 } },
+      label: etiquetaValor(c, estrecho, 6),
+      markLine: {
+        silent: true, symbol: ['none', 'none'], label: { show: false },
+        lineStyle: { color: c.texto2, type: [4, 4], width: 1 },
+        data: [{ yAxis: datos.umbral }]
+      }
+    }];
+    return base;
+  }
+
+  function opcionUso(c, estrecho) {
+    const base = opcionesComunes(c, estrecho, 'Uso estimado de protección solar', 'Uso estimado');
+    const escala = escalaUso(Math.max(...datos.uso));
+    base.yAxis.max = escala.max;
+    base.yAxis.interval = escala.paso;
+    base.tooltip.axisPointer = { type: 'line', lineStyle: { color: c.eje, width: 1 } };
+    base.tooltip.formatter = (puntos) => {
+      const i = puntos[0].dataIndex;
+      return lineaTooltip(i, c.serie, 'linea', numero(datos.uso[i]), 'Uso estimado');
+    };
+    base.series = [{
+      type: 'line',
+      name: 'Uso estimado de protección solar',
+      data: datos.uso,
+      symbol: 'circle', symbolSize: 8,
+      lineStyle: { width: 2, color: c.serie, cap: 'round', join: 'round' },
+      itemStyle: { color: c.serie, borderColor: c.superficie, borderWidth: 2 },
+      areaStyle: { color: c.serieRelleno },
+      emphasis: { scale: 1.3 },
+      label: etiquetaValor(c, estrecho, 8)
+    }];
+    return base;
+  }
+
+  function describirGraficas() {
+    const rango = rangoDeFechas(fechas);
+    const resumen = (valores) => valores.map((v, i) => `${fechaLarga(fechas[i])}: ${numero(v)}`).join('; ');
+    porId('grafica-uv').setAttribute('aria-label',
+      `Gráfica de barras del índice UV máximo diario, ${rango}. ${resumen(datos.uv)}.`);
+    porId('grafica-uso').setAttribute('aria-label',
+      `Gráfica de líneas del uso estimado de protección solar, ${rango}. ${resumen(datos.uso)}.`);
+  }
+
+  function pintarGraficas() {
+    graficas.forEach((grafica) => grafica.dispose());
+    graficas = [];
+    modoEstrecho = pantallaEstrecha.matches;
+    const c = colores();
+    const uv = echarts.init(porId('grafica-uv'), null, { renderer: 'svg' });
+    const uso = echarts.init(porId('grafica-uso'), null, { renderer: 'svg' });
+    uv.setOption(opcionUV(c, modoEstrecho));
+    uso.setOption(opcionUso(c, modoEstrecho));
+    // Al pasar por un día en una gráfica, la otra muestra el mismo día.
+    echarts.connect([uv, uso]);
+    graficas = [uv, uso];
+  }
+
+  // Sin conexión (o si el fichero de ECharts no supera la comprobación SRI)
+  // se avisa una vez y se ocultan las tarjetas de las gráficas.
+  function sinGraficas() {
+    porId('aviso-graficas').hidden = false;
+    document.querySelectorAll('.tarjeta-grafica').forEach((tarjeta) => { tarjeta.hidden = true; });
+  }
+
+  pintarTextos();
+  pintarResumen();
+  pintarTabla();
+  pintarLeyenda();
+  describirGraficas();
+
+  if (typeof window.echarts === 'undefined') {
+    sinGraficas();
+    return;
+  }
+  pintarGraficas();
+
+  let pendiente = 0;
+  window.addEventListener('resize', () => {
+    cancelAnimationFrame(pendiente);
+    pendiente = requestAnimationFrame(() => {
+      if (pantallaEstrecha.matches !== modoEstrecho) pintarGraficas();
+      else graficas.forEach((grafica) => grafica.resize());
+    });
+  });
+  // Si el sistema cambia entre modo claro y oscuro, se vuelven a pintar con sus colores.
+  const modoOscuro = window.matchMedia('(prefers-color-scheme: dark)');
+  if (modoOscuro.addEventListener) modoOscuro.addEventListener('change', pintarGraficas);
+})();
+</script>
+</body>
+</html>
