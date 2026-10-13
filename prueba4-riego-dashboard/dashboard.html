@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<!--
+  Plantilla del dashboard. No contiene datos: generar_dashboard.py sustituye
+  el marcador de la constante DATOS (al final del fichero) por los datos del
+  CSV y guarda el resultado como dashboard.html.
+-->
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Previsión de riego</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M50 6C50 6 16 46 16 66a34 34 0 0 0 68 0C84 46 50 6 50 6z' fill='%232a78d6'/%3E%3C/svg%3E">
+  <style>
+    /* Colores en un único sitio. Las gráficas los leen desde JavaScript. */
+    :root {
+      color-scheme: light;
+      --fuente: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      --pagina: #f4f4f1;
+      --superficie: #fcfcfb;
+      --texto: #0b0b0b;
+      --texto-secundario: #52514e;
+      --texto-suave: #898781;
+      --rejilla: #e1e0d9;
+      --eje: #c3c2b7;
+      --borde: rgba(11, 11, 11, 0.10);
+      --resalte: rgba(11, 11, 11, 0.05);
+      --serie-precipitacion: #2a78d6;
+      --serie-riego: #eb6834;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --pagina: #0d0d0d;
+        --superficie: #1a1a19;
+        --texto: #f0efec;
+        --texto-secundario: #c3c2b7;
+        --texto-suave: #898781;
+        --rejilla: #2c2c2a;
+        --eje: #383835;
+        --borde: rgba(255, 255, 255, 0.10);
+        --resalte: rgba(255, 255, 255, 0.06);
+        --serie-precipitacion: #3987e5;
+        --serie-riego: #d95926;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--pagina);
+      color: var(--texto);
+      font-family: var(--fuente);
+      line-height: 1.5;
+    }
+
+    .pagina {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px 16px 40px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.75rem;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+    }
+
+    .subtitulo {
+      margin: 6px 0 0;
+      color: var(--texto-secundario);
+    }
+
+    /* Resumen de la semana */
+    .resumen {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 24px 0 0;
+    }
+
+    .dato,
+    .tarjeta {
+      background: var(--superficie);
+      border: 1px solid var(--borde);
+      border-radius: 12px;
+    }
+
+    .dato {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 14px 16px;
+    }
+
+    .dato-etiqueta {
+      color: var(--texto-secundario);
+      font-size: 0.875rem;
+    }
+
+    .dato-valor {
+      font-size: 1.625rem;
+      font-weight: 600;
+      line-height: 1.25;
+    }
+
+    /* Tarjetas de las gráficas */
+    .tarjeta {
+      margin-top: 16px;
+      padding: 20px 20px 14px;
+      break-inside: avoid;
+    }
+
+    .grafica {
+      height: 320px;
+    }
+
+    .grafica--error {
+      display: grid;
+      place-items: center;
+      padding: 16px;
+      color: var(--texto-secundario);
+      text-align: center;
+    }
+
+    .nota {
+      margin: 6px 0 0;
+      color: var(--texto-secundario);
+      font-size: 0.875rem;
+    }
+
+    /* Tooltip de las gráficas */
+    .tt-dia {
+      margin-bottom: 4px;
+      color: var(--texto-secundario);
+      font-size: 0.8125rem;
+    }
+
+    .tt-fila {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tt-clave {
+      width: 12px;
+      height: 3px;
+      border-radius: 2px;
+    }
+
+    .tt-etiqueta {
+      color: var(--texto-secundario);
+    }
+
+    /* Tabla de datos */
+    .tabla summary {
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    table {
+      width: 100%;
+      margin: 12px 0 4px;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+
+    th,
+    td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--rejilla);
+      text-align: right;
+    }
+
+    th:first-child,
+    td:first-child {
+      text-align: left;
+    }
+
+    th {
+      color: var(--texto-secundario);
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+
+    .pie {
+      margin-top: 20px;
+      color: var(--texto-secundario);
+      font-size: 0.8125rem;
+    }
+
+    .pie a {
+      color: inherit;
+    }
+
+    @media (max-width: 600px) {
+      .pagina { padding-top: 24px; }
+      h1 { font-size: 1.5rem; }
+      .resumen { grid-template-columns: 1fr; gap: 8px; }
+      .dato { flex-direction: row; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 14px; }
+      .dato-valor { font-size: 1.25rem; white-space: nowrap; }
+      .tarjeta { padding: 16px 12px 12px; }
+      .grafica { height: 290px; }
+      th, td { padding: 8px 6px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="pagina">
+    <header>
+      <h1>Previsión de riego</h1>
+      <p class="subtitulo" id="subtitulo"></p>
+    </header>
+
+    <noscript><p>Este dashboard necesita JavaScript para mostrar los datos.</p></noscript>
+
+    <section class="resumen" aria-label="Resumen del periodo">
+      <div class="dato">
+        <span class="dato-etiqueta">Precipitación total prevista</span>
+        <span class="dato-valor" id="dato-precipitacion"></span>
+      </div>
+      <div class="dato">
+        <span class="dato-etiqueta">Días que necesitan riego</span>
+        <span class="dato-valor" id="dato-dias-riego"></span>
+      </div>
+      <div class="dato">
+        <span class="dato-etiqueta">Uso estimado de riego total</span>
+        <span class="dato-valor" id="dato-uso"></span>
+      </div>
+    </section>
+
+    <section class="tarjeta">
+      <div class="grafica" id="grafica-precipitacion" role="img"
+           aria-label="Gráfica de barras de la precipitación diaria prevista. Los valores están en la tabla de datos."></div>
+      <p class="nota">La línea discontinua marca el umbral de <span data-umbral></span> mm: los días que llueve más no hace falta regar.</p>
+    </section>
+
+    <section class="tarjeta">
+      <div class="grafica" id="grafica-riego" role="img"
+           aria-label="Gráfica de líneas del uso estimado de riego por día. Los valores están en la tabla de datos."></div>
+      <p class="nota">Uso estimado = (<span data-umbral></span> − precipitación) × <span data-factor></span> si la precipitación es de <span data-umbral></span> mm o menos, y 0 si es mayor.</p>
+    </section>
+
+    <details class="tarjeta tabla">
+      <summary>Ver los datos en una tabla</summary>
+      <table id="tabla">
+        <thead>
+          <tr><th scope="col"></th><th scope="col"></th><th scope="col"></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </details>
+
+    <footer class="pie">
+      Datos meteorológicos: <a href="https://open-meteo.com/">Open-Meteo.com</a> (CC BY 4.0) ·
+      <span id="generado"></span>
+    </footer>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js"
+          integrity="sha384-C2iskrW/uPW46KzOjrvJIQo4YkV8lkD+QS0CrDN18IIPIpT/g2USu8bTP3nvmIAD"
+          crossorigin="anonymous"></script>
+  <script>
+    'use strict';
+
+    // generar_dashboard.py sustituye el marcador por los datos del CSV.
+    const DATOS = {
+  "columnas": [
+    "Día",
+    "Precipitación (mm)",
+    "Uso estimado de riego"
+  ],
+  "umbral_mm": 5,
+  "factor": 10,
+  "ubicacion": "Madrid, España",
+  "origen": "riego.csv",
+  "generado": "13/10/2026 00:28",
+  "dias": [
+    "mar 13 oct",
+    "mié 14 oct",
+    "jue 15 oct",
+    "vie 16 oct",
+    "sáb 17 oct",
+    "dom 18 oct",
+    "lun 19 oct"
+  ],
+  "precipitacion": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    4.95,
+    15.9,
+    18.0
+  ],
+  "uso": [
+    50.0,
+    50.0,
+    50.0,
+    50.0,
+    0.5,
+    0.0,
+    0.0
+  ]
+};
+
+    const [COL_DIA, COL_PRECIPITACION, COL_USO] = DATOS.columnas;
+    const formato = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 });
+    const formatoTabla = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const suma = (lista) => lista.reduce((total, valor) => total + valor, 0);
+
+    /* ---------- Cabecera, resumen y tabla ---------- */
+
+    function rellenarPagina() {
+      const n = DATOS.dias.length;
+      const periodo = n > 1 ? `${DATOS.dias[0]} – ${DATOS.dias[n - 1]}` : DATOS.dias[0];
+      document.getElementById('subtitulo').textContent =
+        DATOS.ubicacion ? `${DATOS.ubicacion} · ${periodo}` : periodo;
+      if (DATOS.ubicacion) document.title = `Previsión de riego · ${DATOS.ubicacion}`;
+
+      document.getElementById('dato-precipitacion').textContent = `${formato.format(suma(DATOS.precipitacion))} mm`;
+      document.getElementById('dato-dias-riego').textContent = `${DATOS.uso.filter((uso) => uso > 0).length} de ${n}`;
+      document.getElementById('dato-uso').textContent = formato.format(suma(DATOS.uso));
+
+      document.querySelectorAll('[data-umbral]').forEach((el) => { el.textContent = formato.format(DATOS.umbral_mm); });
+      document.querySelectorAll('[data-factor]').forEach((el) => { el.textContent = formato.format(DATOS.factor); });
+
+      // Las cabeceras de la tabla son las columnas del CSV.
+      document.querySelectorAll('#tabla th').forEach((th, i) => { th.textContent = DATOS.columnas[i]; });
+      const cuerpo = document.querySelector('#tabla tbody');
+      DATOS.dias.forEach((dia, i) => {
+        const fila = cuerpo.insertRow();
+        fila.insertCell().textContent = dia;
+        fila.insertCell().textContent = formatoTabla.format(DATOS.precipitacion[i]);
+        fila.insertCell().textContent = formatoTabla.format(DATOS.uso[i]);
+      });
+
+      document.getElementById('generado').textContent = `Generado el ${DATOS.generado} a partir de ${DATOS.origen}`;
+    }
+
+    /* ---------- Gráficas (ECharts) ---------- */
+
+    // Lee los colores de las variables CSS, así sirven tanto para el modo claro como el oscuro.
+    function leerTema() {
+      const css = getComputedStyle(document.documentElement);
+      const valor = (nombre) => css.getPropertyValue(nombre).trim();
+      return {
+        fuente: valor('--fuente'),
+        superficie: valor('--superficie'),
+        texto: valor('--texto'),
+        textoSecundario: valor('--texto-secundario'),
+        textoSuave: valor('--texto-suave'),
+        rejilla: valor('--rejilla'),
+        eje: valor('--eje'),
+        borde: valor('--borde'),
+        resalte: valor('--resalte'),
+        precipitacion: valor('--serie-precipitacion'),
+        riego: valor('--serie-riego'),
+      };
+    }
+
+    // Eje X: "lun 12 oct" se muestra en dos líneas, "lun" / "12 oct". En pantallas
+    // estrechas, solo "lun" / "12" para que quepan todos los días (el mes ya está en el subtítulo).
+    const pantallaEstrecha = window.matchMedia('(max-width: 600px)');
+
+    function etiquetaEjeX(dia) {
+      const fecha = dia.match(/^(\S+) (\d+) (\S+)$/);
+      if (fecha && pantallaEstrecha.matches) return `${fecha[1]}\n${fecha[2]}`;
+      return dia.replace(' ', '\n');
+    }
+
+    // Contenido del tooltip. Se construye con textContent (no con HTML en texto)
+    // para que ningún valor del CSV se interprete como código.
+    function crearTooltip(color, unidad, nombre) {
+      return (puntos) => {
+        const caja = document.createElement('div');
+        const dia = document.createElement('div');
+        dia.className = 'tt-dia';
+        dia.textContent = puntos[0].name;
+        const fila = document.createElement('div');
+        fila.className = 'tt-fila';
+        const clave = document.createElement('span');
+        clave.className = 'tt-clave';
+        clave.style.background = color;
+        const valor = document.createElement('strong');
+        valor.textContent = formato.format(puntos[0].value) + unidad;
+        const etiqueta = document.createElement('span');
+        etiqueta.className = 'tt-etiqueta';
+        etiqueta.textContent = nombre;
+        fila.append(clave, valor, etiqueta);
+        caja.append(dia, fila);
+        return caja;
+      };
+    }
+
+    // Opciones que comparten las dos gráficas: mismo eje X (los días del CSV),
+    // mismos márgenes y mismo estilo.
+    function opcionesComunes(tema, titulo, nombreEjeY) {
+      return {
+        backgroundColor: 'transparent',
+        textStyle: { fontFamily: tema.fuente },
+        animationDuration: 500,
+        title: {
+          text: titulo,
+          left: 0,
+          top: 0,
+          textStyle: { color: tema.texto, fontSize: 15, fontWeight: 600 },
+        },
+        // Márgenes fijos e iguales en las dos gráficas: cada día cae en la misma posición horizontal.
+        grid: { left: 56, right: 12, top: 52, bottom: 64 },
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow', shadowStyle: { color: tema.resalte } },
+          backgroundColor: tema.superficie,
+          borderColor: tema.borde,
+          borderWidth: 1,
+          padding: [8, 12],
+          textStyle: { color: tema.texto, fontSize: 13 },
+          extraCssText: 'border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);',
+        },
+        xAxis: {
+          type: 'category',
+          data: DATOS.dias,
+          name: COL_DIA,
+          nameLocation: 'middle',
+          nameGap: 46,
+          nameTextStyle: { color: tema.textoSecundario, fontSize: 12 },
+          axisLine: { lineStyle: { color: tema.eje } },
+          axisTick: { show: false },
+          axisLabel: { color: tema.textoSuave, fontSize: 12, lineHeight: 16, formatter: etiquetaEjeX },
+        },
+        yAxis: {
+          type: 'value',
+          name: nombreEjeY,
+          nameLocation: 'middle',
+          nameGap: 40,
+          nameTextStyle: { color: tema.textoSecundario, fontSize: 12 },
+          axisLabel: { color: tema.textoSuave, fontSize: 12, formatter: (valor) => formato.format(valor) },
+          splitLine: { lineStyle: { color: tema.rejilla, width: 1 } },
+        },
+      };
+    }
+
+    // Gráfica superior: precipitación (barras) con la línea del umbral.
+    function opcionesPrecipitacion(tema) {
+      const opciones = opcionesComunes(tema, 'Precipitación diaria prevista', COL_PRECIPITACION);
+      // El eje llega como mínimo al doble del umbral, para que la línea del umbral siempre se vea.
+      opciones.yAxis.max = ({ max }) => (max < 2 * DATOS.umbral_mm ? 2 * DATOS.umbral_mm : null);
+      opciones.tooltip.formatter = crearTooltip(tema.precipitacion, ' mm', 'Precipitación');
+      opciones.series = [{
+        type: 'bar',
+        data: DATOS.precipitacion,
+        barMaxWidth: 24,
+        itemStyle: { color: tema.precipitacion, borderRadius: [4, 4, 0, 0] },
+        markLine: {
+          silent: true,
+          animation: false, // la línea de referencia aparece fija, sin animarse
+          symbol: 'none',
+          lineStyle: { color: tema.textoSecundario, type: 'dashed', width: 1 },
+          label: {
+            position: 'insideStartTop',
+            formatter: `Umbral de riego: ${formato.format(DATOS.umbral_mm)} mm`,
+            color: tema.textoSecundario,
+            fontSize: 12,
+            backgroundColor: tema.superficie,
+            padding: [2, 4],
+          },
+          data: [{ yAxis: DATOS.umbral_mm }],
+        },
+      }];
+      return opciones;
+    }
+
+    // Gráfica inferior: uso estimado de riego (línea con área).
+    function opcionesRiego(tema) {
+      const opciones = opcionesComunes(tema, 'Uso estimado de riego por día', COL_USO);
+      // Escala fija hasta el máximo de la fórmula (precipitación 0 → 5 × 10 = 50) para comparar periodos.
+      const maximoFormula = DATOS.umbral_mm * DATOS.factor;
+      opciones.yAxis.max = ({ max }) => (max <= maximoFormula ? maximoFormula : null);
+      opciones.tooltip.formatter = crearTooltip(tema.riego, '', 'Uso estimado');
+      opciones.series = [{
+        type: 'line',
+        data: DATOS.uso,
+        symbol: 'circle',
+        symbolSize: 10,
+        lineStyle: { color: tema.riego, width: 2 },
+        itemStyle: { color: tema.riego, borderColor: tema.superficie, borderWidth: 2 },
+        areaStyle: { color: tema.riego, opacity: 0.1 },
+      }];
+      return opciones;
+    }
+
+    const graficas = [];
+
+    function pintarGraficas() {
+      const tema = leerTema();
+      graficas[0].setOption(opcionesPrecipitacion(tema), true);
+      graficas[1].setOption(opcionesRiego(tema), true);
+    }
+
+    function iniciarGraficas() {
+      const contenedores = [document.getElementById('grafica-precipitacion'), document.getElementById('grafica-riego')];
+      if (typeof echarts === 'undefined') {
+        contenedores.forEach((el) => {
+          el.classList.add('grafica--error');
+          el.textContent = 'No se ha podido cargar ECharts. Comprueba la conexión a internet y recarga la página.';
+        });
+        return;
+      }
+      contenedores.forEach((el) => graficas.push(echarts.init(el, null, { renderer: 'svg' })));
+      pintarGraficas();
+      echarts.connect(graficas); // al pasar por un día, el tooltip aparece en las dos gráficas
+      window.addEventListener('resize', () => graficas.forEach((grafica) => grafica.resize()));
+      // Se vuelven a pintar si cambia el modo claro/oscuro o se cruza el ancho de pantalla estrecha.
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', pintarGraficas);
+      pantallaEstrecha.addEventListener('change', pintarGraficas);
+    }
+
+    rellenarPagina();
+    iniciarGraficas();
+  </script>
+</body>
+</html>
